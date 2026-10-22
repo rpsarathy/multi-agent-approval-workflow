@@ -1,0 +1,205 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PA Review Console</title>
+<style>
+  :root { --bg:#f6f7f9; --panel:#fff; --ink:#1d2330; --muted:#5d6678; --line:#dde1e8; --accent:#2457c5;
+          --ok:#1f7a4d; --bad:#b42318; --warn:#9a6700; --na:#7a8293; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#14171d; --panel:#1c2028; --ink:#e6e9ef; --muted:#9aa3b5;
+          --line:#2c323d; --accent:#7aa2ff; --ok:#5cc58e; --bad:#ff7b72; --warn:#e3b341; --na:#8b93a3; } }
+  * { box-sizing: border-box; } [hidden] { display: none !important; }
+  body { margin:0; font:14px/1.45 system-ui, -apple-system, Segoe UI, sans-serif; background:var(--bg); color:var(--ink); }
+  header { padding:14px 20px; border-bottom:1px solid var(--line); background:var(--panel); display:flex; gap:12px; align-items:baseline; flex-wrap:wrap; }
+  header h1 { font-size:17px; margin:0; } .badge { font-size:12px; padding:2px 8px; border-radius:10px; border:1px solid var(--line); color:var(--muted); }
+  main { display:grid; grid-template-columns: 340px 1fr; gap:16px; padding:16px 20px; }
+  @media (max-width: 900px) { main { grid-template-columns: 1fr; padding:12px 16px; } }
+  section { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:14px; margin-bottom:16px; min-width:0; }
+  h2 { font-size:14px; margin:0 0 10px; } h3 { font-size:13px; margin:14px 0 6px; color:var(--muted); text-transform:uppercase; letter-spacing:.04em; }
+  label { display:block; font-size:12px; color:var(--muted); margin:8px 0 3px; }
+  input, select, textarea { width:100%; padding:7px 8px; border:1px solid var(--line); border-radius:6px; background:var(--bg); color:var(--ink); font:inherit; }
+  button { padding:7px 12px; border-radius:6px; border:1px solid var(--accent); background:var(--accent); color:#fff; font:inherit; cursor:pointer; }
+  button.secondary { background:transparent; color:var(--accent); } button:disabled { opacity:.5; cursor:default; }
+  .row { display:flex; gap:8px; flex-wrap:wrap; margin-top:10px; }
+  table { width:100%; border-collapse:collapse; font-size:13px; } td, th { text-align:left; padding:5px 6px; border-bottom:1px solid var(--line); vertical-align:top; }
+  .scroll { overflow-x:auto; }
+  .s-PASS, .s-SUCCEEDED, .s-COMPLETED, .s-APPROVE { color:var(--ok); font-weight:600; }
+  .s-FAIL, .s-FAILED, .s-DENY, .s-REJECTED, .s-INVALID_REQUEST, .s-CONFLICT { color:var(--bad); font-weight:600; }
+  .s-UNKNOWN, .s-MISSING, .s-PEND_FOR_INFORMATION, .s-AWAITING_APPROVAL, .s-REFER_TO_MEDICAL_DIRECTOR, .s-WARNING { color:var(--warn); font-weight:600; }
+  .s-NOT_APPLICABLE, .s-SKIPPED_ALREADY_DONE { color:var(--na); }
+  .runs div { padding:6px 8px; border-radius:6px; cursor:pointer; } .runs div:hover, .runs div.active { background:var(--bg); }
+  .muted { color:var(--muted); font-size:12px; } code { font-size:12px; word-break:break-all; }
+  .flag { background:color-mix(in srgb, var(--bad) 12%, transparent); border-left:3px solid var(--bad); padding:6px 8px; margin:4px 0; font-size:12px; }
+  .err { color:var(--bad); margin-top:8px; white-space:pre-wrap; }
+  .kv { display:grid; grid-template-columns: 160px 1fr; gap:4px 10px; font-size:13px; }
+  @media (max-width: 600px) { .kv { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>Prior-Authorization Review Console</h1>
+  <span class="badge">SYNTHETIC DATA ONLY</span>
+  <span class="badge" id="mode">llm: …</span>
+  <span class="badge" id="who">signed out</span>
+</header>
+<section id="loginBox" style="margin:16px 20px;max-width:520px">
+  <h2>Reviewer sign-in</h2>
+  <label for="loginId">Reviewer</label><select id="loginId"></select>
+  <label for="passcode">Passcode</label><input id="passcode" type="password" autocomplete="current-password">
+  <p class="muted">Synthetic demo accounts: SYN-R01 <code>nurse-demo</code> (nurse reviewer), SYN-R02 <code>director-demo</code> (medical director), SYN-R03 <code>inactive-demo</code> (inactive).</p>
+  <div class="row"><button id="loginBtn">Sign in</button></div><div class="err" id="loginErr"></div>
+</section>
+<main id="app" hidden>
+  <div>
+    <section>
+      <h2>Start a workflow</h2>
+      <label for="scenario">Synthetic scenario</label>
+      <select id="scenario"></select>
+      <label for="member">Member (customer) ID</label>
+      <input id="member">
+      <label for="reqjson">Business request (JSON)</label>
+      <textarea id="reqjson" rows="5"></textarea>
+      <label for="budget">Token budget for this run (blank = default)</label>
+      <input id="budget" type="number" min="0">
+      <div class="row"><button id="startBtn">Run agents</button></div>
+      <div class="err" id="startErr"></div>
+    </section>
+    <section>
+      <h2>Runs</h2>
+      <div class="runs" id="runs"></div>
+    </section>
+  </div>
+  <div id="detail"><section><p class="muted">Start or select a run.</p></section></div>
+</main>
+<script>
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const pill = (s) => `<span class="s-${esc(s)}">${esc(s)}</span>`;
+let scenarios = [], reviewers = [], current = null, session = null;
+try { session = JSON.parse(sessionStorage.getItem("pa-session") || "null"); } catch (e) { session = null; }
+
+async function api(path, opts = {}) {
+  const headers = { "Content-Type": "application/json" };
+  if (session) headers.Authorization = `Bearer ${session.access_token}`;
+  const r = await fetch(path, { ...opts, headers });
+  if (r.status === 401 && session) { signOut(); throw new Error("Session expired; sign in again."); }
+  const body = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(typeof body.detail === "string" ? body.detail : JSON.stringify(body.detail ?? body));
+  return body;
+}
+
+async function init() {
+  const h = await api("/healthz"); $("mode").textContent = `llm: ${h.llm_mode} (${h.model})`;
+  scenarios = await api("/api/v1/demo/scenarios");
+  reviewers = await api("/api/v1/demo/reviewers");
+  $("loginId").innerHTML = reviewers.map(r => `<option value="${esc(r.reviewer_id)}">${esc(r.reviewer_id)} — ${esc(r.display_name)} (${esc(r.role)})</option>`).join("");
+  $("loginBtn").onclick = signIn;
+  if (session) await enter();
+}
+async function signIn() {
+  $("loginErr").textContent = "";
+  try {
+    session = await api("/api/v1/auth/login", { method: "POST", body: JSON.stringify({ reviewer_id: $("loginId").value, passcode: $("passcode").value }) });
+    try { sessionStorage.setItem("pa-session", JSON.stringify(session)); } catch (e) { /* storage unavailable: keep in memory */ }
+    $("passcode").value = ""; await enter();
+  } catch (e) { session = null; $("loginErr").textContent = e.message; }
+}
+function signOut() {
+  session = null; try { sessionStorage.removeItem("pa-session"); } catch (e) { /* ignore */ }
+  $("app").hidden = true; $("loginBox").hidden = false; $("who").textContent = "signed out";
+}
+async function enter() {
+  $("loginBox").hidden = true; $("app").hidden = false;
+  $("who").innerHTML = `${esc(session.reviewer.display_name)} · ${esc(session.reviewer.role)} <a href="#" id="signOut">sign out</a>`;
+  $("signOut").onclick = (e) => { e.preventDefault(); signOut(); };
+  $("scenario").innerHTML = scenarios.map((s, i) => `<option value="${i}">${esc(s.member_id)} — ${esc(s.description)}</option>`).join("");
+  $("scenario").onchange = fill; fill();
+  $("startBtn").onclick = startRun;
+  await loadRuns();
+}
+function fill() {
+  const s = scenarios[$("scenario").value];
+  $("member").value = s.member_id; $("reqjson").value = JSON.stringify(s.request, null, 2);
+}
+async function startRun() {
+  $("startErr").textContent = ""; $("startBtn").disabled = true;
+  try {
+    const body = { member_id: $("member").value.trim(), request: JSON.parse($("reqjson").value) };
+    if ($("budget").value !== "") body.token_budget = Number($("budget").value);
+    const run = await api("/api/v1/workflows", { method: "POST", body: JSON.stringify(body) });
+    await loadRuns(); show(run);
+  } catch (e) { $("startErr").textContent = e.message; } finally { $("startBtn").disabled = false; }
+}
+async function loadRuns() {
+  const runs = await api("/api/v1/workflows");
+  $("runs").innerHTML = runs.map(r => `<div data-id="${esc(r.run_id)}" class="${current && current.run_id === r.run_id ? "active" : ""}">
+    ${pill(r.status)} <b>${esc(r.member_id)}</b> <span class="muted">${esc(r.request.auth_request_number || r.request.request_type)}</span><br>
+    <span class="muted">${esc(r.created_at.replace("T", " ").slice(0, 19))} · ${esc(r.run_id.slice(0, 8))}</span></div>`).join("") || `<p class="muted">No runs yet.</p>`;
+  document.querySelectorAll(".runs div[data-id]").forEach(d => d.onclick = async () => show(await api(`/api/v1/workflows/${d.dataset.id}`)));
+}
+
+async function show(run) {
+  current = run;
+  const audit = await api(`/api/v1/workflows/${run.run_id}/audit`);
+  const st = run.state || {}, v = st.validation, rec = run.recommendations.at(-1);
+  const awaiting = run.status === "AWAITING_APPROVAL";
+  let html = `<section><h2>Run ${esc(run.run_id)}</h2><div class="kv">
+    <div>Status</div><div>${pill(run.status)} ${run.error ? `<span class="err">${esc(run.error)}</span>` : ""}</div>
+    <div>Member</div><div>${esc(run.member_id)}</div>
+    <div>Request</div><div><code>${esc(JSON.stringify(run.request))}</code></div>
+    <div>Current step</div><div>${esc(run.current_step)}</div>
+    <div>Tokens</div><div>${run.token_usage.used} used of ${run.token_usage.run_budget} (${run.token_usage.remaining} left) · mode ${esc(run.llm_mode)}</div>
+    </div>${run.status === "FAILED" ? `<div class="row"><button id="resumeBtn">Resume from checkpoint</button></div>` : ""}</section>`;
+
+  if (rec) {
+    const p = rec.payload;
+    html += `<section><h2>Recommendation v${rec.version} — ${pill(p.outcome)}</h2>
+      <p>${esc(p.summary)}</p>
+      <div class="muted">Generated by <b>${esc(rec.generated_by)}</b> · confidence ${esc(p.confidence)} · rules outcome ${pill(p.rules_outcome)} ${p.agrees_with_rules ? "(agrees)" : "(differs)"}</div>
+      ${rec.guardrail_flags.map(f => `<div class="flag">${esc(f)}</div>`).join("")}
+      <h3>Findings and evidence</h3><div class="scroll"><table><tr><th>Finding</th><th>Evidence</th></tr>
+      ${p.findings.map(f => `<tr><td>${esc(f.statement)}</td><td>${f.evidence_ids.map(e => `<div title="${esc(v?.evidence?.[e] ?? "")}"><code>${esc(e)}</code><div class="muted">${esc(v?.evidence?.[e] ?? "")}</div></div>`).join("")}</td></tr>`).join("")}</table></div>
+      ${p.missing_information.length ? `<h3>Missing information</h3><ul>${p.missing_information.map(m => `<li>${esc(m)}</li>`).join("")}</ul>` : ""}
+      <h3>Actions on approval</h3><div>${p.proposed_actions.map(esc).join(", ") || "none"}</div>`;
+    if (awaiting) {
+      html += `<h3>Your decision</h3>
+        <div class="muted">Deciding as <b>${esc(session.reviewer.display_name)}</b> (${esc(session.reviewer.role)})</div>
+        <label for="comment">Comment (required for revision)</label><textarea id="comment" rows="2"></textarea>
+        <div class="row"><button data-d="APPROVE">Approve</button><button class="secondary" data-d="REQUEST_REVISION">Request revision</button><button class="secondary" data-d="REJECT">Reject</button></div>
+        <div class="muted">DENY and REFER outcomes require a MEDICAL_DIRECTOR to approve.</div><div class="err" id="decErr"></div>`;
+    }
+    html += `</section>`;
+  }
+  if (v) {
+    html += `<section><h2>Validation</h2><div class="scroll"><table><tr><th>Check</th><th>Status</th><th>Detail</th></tr>
+      ${v.checks.map(c => `<tr><td>${esc(c.check)}${c.hard ? "" : " <span class='muted'>(soft)</span>"}</td><td>${pill(c.status)}</td><td>${esc(c.detail)}</td></tr>`).join("")}</table></div>
+      <h3>Data issues</h3>${v.data_issues.length ? `<div class="scroll"><table>${v.data_issues.map(i => `<tr><td>${pill(i.kind)}</td><td>${esc(i.code)}</td><td>${esc(i.message)}</td></tr>`).join("")}</table></div>` : `<p class="muted">None.</p>`}</section>`;
+  }
+  if (run.actions.length || run.approvals.length) {
+    html += `<section><h2>Decisions and actions</h2><div class="scroll"><table>
+      ${run.approvals.map(a => `<tr><td>${esc(a.decided_at.slice(0, 19))}</td><td>${pill(a.decision)} v${a.recommendation_version}</td><td>${esc(a.reviewer_id)}</td><td>${esc(a.comment)}</td></tr>`).join("")}
+      ${run.actions.map(a => `<tr><td>${esc(a.executed_at.slice(0, 19))}</td><td>${esc(a.action_type)}</td><td>${pill(a.status)}</td><td><code>${esc(JSON.stringify(a.result))}</code></td></tr>`).join("")}
+      </table></div></section>`;
+  }
+  html += `<section><h2>Audit trail <span class="muted">· ${audit.integrity.events} events · hash chain ${audit.integrity.valid ? "<span class='s-PASS'>valid</span>" : `<span class='s-FAIL'>BROKEN at #${audit.integrity.first_invalid_seq}</span>`}</span></h2>
+    <div class="scroll"><table><tr><th>#</th><th>Event</th><th>Actor</th><th>Payload</th></tr>
+    ${audit.events.map(e => `<tr><td>${e.seq}</td><td>${esc(e.event_type)}</td><td>${esc(e.actor)}</td><td><code>${esc(JSON.stringify(e.payload).slice(0, 400))}</code></td></tr>`).join("")}</table></div></section>`;
+  $("detail").innerHTML = html;
+
+  document.querySelectorAll("button[data-d]").forEach(b => b.onclick = () => decide(b.dataset.d, rec.version));
+  if ($("resumeBtn")) $("resumeBtn").onclick = async () => { show(await api(`/api/v1/workflows/${run.run_id}/resume`, { method: "POST" })); loadRuns(); };
+  loadRuns();
+}
+async function decide(decision, version) {
+  $("decErr").textContent = "";
+  try {
+    const run = await api(`/api/v1/workflows/${current.run_id}/decisions`, { method: "POST", body: JSON.stringify({
+      decision, recommendation_version: version, comment: $("comment").value || null }) });
+    show(run);
+  } catch (e) { $("decErr").textContent = e.message; }
+}
+init().catch(e => { $("detail").innerHTML = `<section class="err">${esc(e.message)}</section>`; });
+</script>
+</body>
+</html>

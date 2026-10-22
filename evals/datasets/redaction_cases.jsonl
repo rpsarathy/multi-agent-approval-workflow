@@ -1,0 +1,39 @@
+{"id": "pat-email-1", "category": "pattern", "member_id": null, "text": "Reach me at jane.doe+pa@clinic.example.com today", "must_remove": ["jane.doe+pa@clinic.example.com"], "must_keep": ["today"], "gated": true}
+{"id": "pat-email-2", "category": "pattern", "member_id": null, "text": "cc: R.Smith@health-system.org", "must_remove": ["R.Smith@health-system.org"], "must_keep": [], "gated": true}
+{"id": "pat-phone-1", "category": "pattern", "member_id": null, "text": "Call (212) 555-0199 after 5pm", "must_remove": ["555-0199"], "must_keep": ["after 5pm"], "gated": true}
+{"id": "pat-phone-2", "category": "pattern", "member_id": null, "text": "fax 312.555.0142", "must_remove": ["312.555.0142"], "must_keep": [], "gated": true}
+{"id": "pat-phone-3", "category": "pattern", "member_id": null, "text": "mobile +1 646 555 0123", "must_remove": ["646 555 0123"], "must_keep": [], "gated": true}
+{"id": "pat-ssn-1", "category": "pattern", "member_id": null, "text": "SSN 987-65-4321 on file", "must_remove": ["987-65-4321"], "must_keep": ["on file"], "gated": true}
+{"id": "pat-ssn-2", "category": "pattern", "member_id": null, "text": "social security number: 987654321", "must_remove": ["987654321"], "must_keep": [], "gated": true}
+{"id": "pat-dob-1", "category": "pattern", "member_id": null, "text": "DOB: 02/29/1964", "must_remove": ["02/29/1964"], "must_keep": [], "gated": true}
+{"id": "pat-dob-2", "category": "pattern", "member_id": null, "text": "date of birth 1971-08-30", "must_remove": ["1971-08-30"], "must_keep": [], "gated": true}
+{"id": "pat-dob-3", "category": "pattern", "member_id": null, "text": "born on March 3, 1990", "must_remove": ["March 3, 1990"], "must_keep": [], "gated": true}
+{"id": "pat-dob-4", "category": "pattern", "member_id": null, "text": "D.O.B. 7 June 1955", "must_remove": ["7 June 1955"], "must_keep": [], "gated": true}
+{"id": "pat-addr-1", "category": "pattern", "member_id": null, "text": "home: 1600 Willow Creek Rd, apt 2", "must_remove": ["1600 Willow Creek Rd"], "must_keep": ["apt 2"], "gated": true}
+{"id": "pat-addr-2", "category": "pattern", "member_id": null, "text": "mail to 22 Elm St.", "must_remove": ["22 Elm St"], "must_keep": [], "gated": true}
+{"id": "known-name-1", "category": "known_identifier", "member_id": "SYN-M0001", "text": "Ava Thornbury reports worsening radicular pain", "must_remove": ["Ava", "Thornbury"], "must_keep": ["radicular pain"], "gated": true}
+{"id": "known-name-2", "category": "known_identifier", "member_id": "SYN-M0001", "text": "pt THORNBURY, AVA seen today", "must_remove": ["THORNBURY", "AVA"], "must_keep": ["seen today"], "gated": true}
+{"id": "known-name-3", "category": "known_identifier", "member_id": "SYN-M0001", "text": "Spoke with ava about imaging", "must_remove": ["ava"], "must_keep": ["imaging"], "gated": true}
+{"id": "known-dob-1", "category": "known_identifier", "member_id": "SYN-M0001", "text": "1980-04-12 is the date on the old chart", "must_remove": ["1980-04-12"], "must_keep": ["old chart"], "gated": true}
+{"id": "known-dob-2", "category": "known_identifier", "member_id": "SYN-M0001", "text": "chart says 04/12/1980", "must_remove": ["04/12/1980"], "must_keep": [], "gated": true}
+{"id": "known-dob-3", "category": "known_identifier", "member_id": "SYN-M0001", "text": "birthday April 12, 1980 confirmed", "must_remove": ["April 12, 1980"], "must_keep": ["confirmed"], "gated": true}
+{"id": "known-phone-1", "category": "known_identifier", "member_id": "SYN-M0001", "text": "callback 4155550101", "must_remove": ["4155550101"], "must_keep": [], "gated": true}
+{"id": "known-phone-2", "category": "known_identifier", "member_id": "SYN-M0001", "text": "callback 415-555-0101", "must_remove": ["415-555-0101"], "must_keep": [], "gated": true}
+{"id": "known-email-1", "category": "known_identifier", "member_id": "SYN-M0001", "text": "emailed ava.t@example.invalid", "must_remove": ["ava.t@example.invalid"], "must_keep": [], "gated": true}
+{"id": "known-ssn-1", "category": "known_identifier", "member_id": "SYN-M0001", "text": "id 912345601 verified", "must_remove": ["912345601"], "must_keep": ["verified"], "gated": true}
+{"id": "known-addr-1", "category": "known_identifier", "member_id": "SYN-M0001", "text": "moved from 4152 granite blvd last year", "must_remove": ["4152 granite blvd"], "must_keep": ["last year"], "gated": true}
+{"id": "known-mixed-1", "category": "known_identifier", "member_id": "SYN-M0001", "text": "Patient Ava Thornbury, DOB 04/12/1980, tel (415) 555-0101, needs MRI 72148 on 2026-11-16", "must_remove": ["Ava", "Thornbury", "04/12/1980", "555-0101"], "must_keep": ["MRI 72148", "2026-11-16"], "gated": true}
+{"id": "known-name-4", "category": "known_identifier", "member_id": "SYN-M0007", "text": "Grace Lindqvist requests expedited review", "must_remove": ["Grace", "Lindqvist"], "must_keep": ["expedited review"], "gated": true}
+{"id": "known-dob-4", "category": "known_identifier", "member_id": "SYN-M0007", "text": "born 19 July 1987", "must_remove": ["19 July 1987"], "must_keep": [], "gated": true}
+{"id": "benign-1", "category": "benign", "member_id": null, "text": "Service date 2026-11-16; submitted 2026-10-19 09:30", "must_remove": [], "must_keep": ["Service date 2026-11-16; submitted 2026-10-19 09:30"], "gated": true}
+{"id": "benign-2", "category": "benign", "member_id": null, "text": "NPI 9000000029 requesting CPT 27447 for dx M17.11", "must_remove": [], "must_keep": ["NPI 9000000029 requesting CPT 27447 for dx M17.11"], "gated": true}
+{"id": "benign-3", "category": "benign", "member_id": null, "text": "Request SYN-PA-0003, enrollment 3, coverage rule 7 effective 2026-01-01", "must_remove": [], "must_keep": ["Request SYN-PA-0003, enrollment 3, coverage rule 7 effective 2026-01-01"], "gated": true}
+{"id": "benign-4", "category": "benign", "member_id": null, "text": "Units requested 30 exceed annual limit 20", "must_remove": [], "must_keep": ["Units requested 30 exceed annual limit 20"], "gated": true}
+{"id": "benign-5", "category": "benign", "member_id": "SYN-M0001", "text": "Member SYN-M0001 age 46 in CA, plan SYN-CA-PPO-01", "must_remove": [], "must_keep": ["Member SYN-M0001 age 46 in CA, plan SYN-CA-PPO-01"], "gated": true}
+{"id": "benign-6", "category": "benign", "member_id": null, "text": "Provider license expires 2028-03-31 (status ACTIVE)", "must_remove": [], "must_keep": ["Provider license expires 2028-03-31 (status ACTIVE)"], "gated": true}
+{"id": "benign-7", "category": "benign", "member_id": null, "text": "Amount $1,250.00; deductible 1500", "must_remove": [], "must_keep": ["Amount $1,250.00; deductible 1500"], "gated": true}
+{"id": "benign-8", "category": "benign", "member_id": null, "text": "Guideline LS-01 version 4.2 reviewed by Dr. Omar Vance (synthetic)", "must_remove": [], "must_keep": ["Guideline LS-01 version 4.2 reviewed by Dr. Omar Vance (synthetic)"], "gated": true}
+{"id": "benign-9", "category": "benign", "member_id": "SYN-M0001", "text": "Avalanche of paperwork; Avanti clinic; available tomorrow", "must_remove": [], "must_keep": ["Avalanche of paperwork; Avanti clinic; available tomorrow"], "gated": true}
+{"id": "benign-10", "category": "benign", "member_id": null, "text": "Tel-health visit on 2026-12-01 at 10:30", "must_remove": [], "must_keep": ["Tel-health visit on 2026-12-01 at 10:30"], "gated": true}
+{"id": "oos-other-name-1", "category": "out_of_scope_other_person", "member_id": "SYN-M0001", "text": "Her daughter Maria Gonzalez will drive her", "must_remove": ["Maria", "Gonzalez"], "must_keep": [], "gated": false}
+{"id": "oos-other-name-2", "category": "out_of_scope_other_person", "member_id": "SYN-M0001", "text": "Referred by neighbour John Smith", "must_remove": ["John", "Smith"], "must_keep": [], "gated": false}
