@@ -129,6 +129,28 @@ def test_guardrail_blocks_approval_over_failed_check(client):
     assert all(e in ev for f in rec["payload"]["findings"] for e in f["evidence_ids"])
 
 
+def _scripted_deny(member, request_number, client):
+    rec = LLMRecommendation(outcome=Outcome.DENY, summary="Deny it.", confidence="HIGH",
+                            findings=[Finding(statement="x", evidence_ids=["check:ELIGIBILITY"])],
+                            missing_information=[], proposed_actions=["RECORD_DETERMINATION", "NOTIFY_PROVIDER"])
+    _use(client, ScriptedProvider(rec))
+    return start(client, member, pa(request_number))["recommendations"][-1]
+
+
+def test_guardrail_overrides_deny_when_rules_say_pend(client):
+    out = _scripted_deny("SYN-M0007", "SYN-PA-0007", client)   # soft failure + missing information -> PEND
+    assert out["payload"]["outcome"] == "PEND_FOR_INFORMATION" and out["payload"]["confidence"] == "LOW"
+    assert any("OUTCOME_OVERRIDDEN: model proposed DENY" in f for f in out["guardrail_flags"])
+    assert out["payload"]["proposed_actions"] == ["REQUEST_DOCUMENTS"]
+    assert out["payload"]["determination"] is None
+
+
+def test_guardrail_overrides_deny_when_rules_say_refer(client):
+    out = _scripted_deny("SYN-M0003", "SYN-PA-0003", client)   # conflicting coverage rules -> REFER
+    assert out["payload"]["outcome"] == "REFER_TO_MEDICAL_DIRECTOR"
+    assert any("OUTCOME_OVERRIDDEN" in f for f in out["guardrail_flags"])
+
+
 def test_guardrail_drops_non_permitted_actions_when_outcome_kept(client):
     rec = LLMRecommendation(outcome=Outcome.APPROVE, summary="ok", confidence="HIGH",
                             findings=[Finding(statement="eligible", evidence_ids=["check:ELIGIBILITY"])],

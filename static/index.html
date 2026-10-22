@@ -24,9 +24,9 @@
   .row { display:flex; gap:8px; flex-wrap:wrap; margin-top:10px; }
   table { width:100%; border-collapse:collapse; font-size:13px; } td, th { text-align:left; padding:5px 6px; border-bottom:1px solid var(--line); vertical-align:top; }
   .scroll { overflow-x:auto; }
-  .s-PASS, .s-SUCCEEDED, .s-COMPLETED, .s-APPROVE { color:var(--ok); font-weight:600; }
-  .s-FAIL, .s-FAILED, .s-DENY, .s-REJECTED, .s-INVALID_REQUEST, .s-CONFLICT { color:var(--bad); font-weight:600; }
-  .s-UNKNOWN, .s-MISSING, .s-PEND_FOR_INFORMATION, .s-AWAITING_APPROVAL, .s-REFER_TO_MEDICAL_DIRECTOR, .s-WARNING { color:var(--warn); font-weight:600; }
+  .s-PASS, .s-SUCCEEDED, .s-COMPLETED, .s-APPROVE, .s-APPROVED { color:var(--ok); font-weight:600; }
+  .s-FAIL, .s-FAILED, .s-DENY, .s-DENIED, .s-REJECTED, .s-INVALID_REQUEST, .s-CONFLICT { color:var(--bad); font-weight:600; }
+  .s-UNKNOWN, .s-PARTIAL, .s-MISSING, .s-PEND_FOR_INFORMATION, .s-AWAITING_APPROVAL, .s-REFER_TO_MEDICAL_DIRECTOR, .s-WARNING { color:var(--warn); font-weight:600; }
   .s-NOT_APPLICABLE, .s-SKIPPED_ALREADY_DONE { color:var(--na); }
   .runs div { padding:6px 8px; border-radius:6px; cursor:pointer; } .runs div:hover, .runs div.active { background:var(--bg); }
   .muted { color:var(--muted); font-size:12px; } code { font-size:12px; word-break:break-all; }
@@ -161,7 +161,8 @@ async function show(run) {
       <h3>Findings and evidence</h3><div class="scroll"><table><tr><th>Finding</th><th>Evidence</th></tr>
       ${p.findings.map(f => `<tr><td>${esc(f.statement)}</td><td>${f.evidence_ids.map(e => `<div title="${esc(v?.evidence?.[e] ?? "")}"><code>${esc(e)}</code><div class="muted">${esc(v?.evidence?.[e] ?? "")}</div></div>`).join("")}</td></tr>`).join("")}</table></div>
       ${p.missing_information.length ? `<h3>Missing information</h3><ul>${p.missing_information.map(m => `<li>${esc(m)}</li>`).join("")}</ul>` : ""}
-      <h3>Actions on approval</h3><div>${p.proposed_actions.map(esc).join(", ") || "none"}</div>`;
+      <h3>Actions on approval</h3><div>${p.proposed_actions.map(esc).join(", ") || "none"}</div>
+      ${p.determination ? `<h3>Determination to record</h3><div>${pill(p.determination.status)} · ${esc(p.determination.units_approved)} unit(s) approved${p.determination.denial_code ? ` · reason code <b>${esc(p.determination.denial_code)}</b>` : ""}</div>` : ""}`;
     if (awaiting) {
       html += `<h3>Your decision</h3>
         <div class="muted">Deciding as <b>${esc(session.reviewer.display_name)}</b> (${esc(session.reviewer.role)})</div>

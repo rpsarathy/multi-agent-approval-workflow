@@ -4,11 +4,10 @@ Guardrails applied to whatever the model returns:
   * cited evidence IDs must exist in the evidence catalog (unknown IDs are dropped and flagged);
   * a finding with no valid evidence is removed and flagged;
   * proposed actions are intersected with the actions permitted for the outcome;
-  * the outcome must be consistent with the deterministic checks: no APPROVE over a
-    failed/unknown check or a conflict; no DENY without a failed check; no PEND over a
-    failure that information cannot cure, or over a conflict. A violation reverts to the
-    rules-based outcome (and its summary/findings) and is flagged. Escalating to a medical
-    director is always allowed, but flagged when the rules would not escalate;
+  * the outcome must equal the deterministic outcome (conflict -> REFER, hard failure -> DENY,
+    missing information -> PEND, soft failure -> DENY, else APPROVE). Any other outcome is
+    reverted to the rules-based one (with its summary and findings) and flagged. The only
+    exception is escalation to a medical director, which is allowed but flagged;
   * free text is stripped of control characters, length-limited, and scrubbed of
     contact-detail patterns before it can reach notices or determination notes.
 If the token budget blocks the call, or the call fails, the rules-based
@@ -78,25 +77,19 @@ def apply_guardrails(rec: LLMRecommendation, bundle: dict) -> tuple[LLMRecommend
             continue
         findings.append(f.model_copy(update={"evidence_ids": valid}))
 
+    # The outcome is decided by the deterministic precedence (conflict -> REFER, hard failure -> DENY,
+    # missing information -> PEND, soft failure -> DENY, else APPROVE). The model may only agree with it,
+    # or escalate to a physician (always the safer direction). Anything else is overridden.
     rules = rule_based_recommendation(bundle)
-    checks = bundle["validation"]["checks"]
-    issues = bundle["validation"]["data_issues"]
-    any_fail = any(c["status"] == "FAIL" for c in checks)
-    any_hard_fail = any(c["status"] == "FAIL" and c["hard"] for c in checks)
-    any_unknown = any(c["status"] == "UNKNOWN" for c in checks)
-    any_conflict = any(i["kind"] == "CONFLICT" for i in issues)
     outcome = rec.outcome
-    if outcome == Outcome.APPROVE and (any_fail or any_unknown or any_conflict):
-        flags.append(f"OUTCOME_OVERRIDDEN: APPROVE not allowed with failed/unknown checks or conflicts -> {rules.outcome.value}")
-        outcome = rules.outcome
-    elif outcome == Outcome.DENY and not any_fail:
-        flags.append(f"OUTCOME_OVERRIDDEN: DENY requires a failed check -> {rules.outcome.value}")
-        outcome = rules.outcome
-    elif outcome == Outcome.PEND_FOR_INFORMATION and (any_conflict or any_hard_fail):
-        flags.append(f"OUTCOME_OVERRIDDEN: PEND not allowed over a conflict or a hard failure -> {rules.outcome.value}")
-        outcome = rules.outcome
-    elif outcome == Outcome.REFER_TO_MEDICAL_DIRECTOR and rules.outcome != Outcome.REFER_TO_MEDICAL_DIRECTOR:
+    if outcome == rules.outcome:
+        pass
+    elif outcome == Outcome.REFER_TO_MEDICAL_DIRECTOR:
         flags.append(f"ESCALATED_BEYOND_RULES: model referred to a physician; rules outcome is {rules.outcome.value}")
+    else:
+        flags.append(f"OUTCOME_OVERRIDDEN: model proposed {rec.outcome.value}; the evidence supports "
+                     f"{rules.outcome.value}")
+        outcome = rules.outcome
     overridden = outcome != rec.outcome
     if overridden or not findings:
         # Replace with the deterministic findings, which always cite valid evidence.

@@ -84,17 +84,24 @@ def get_provider(provider_id: int, state_code: str, plan_id: int) -> s.ProviderO
                              network_for_plan=s.NetworkOut.model_validate(net) if net else None)
 
 
-def get_policy_rules(state_code: str, insurance_category: str, cpt_code: str, on: date) -> s.PolicyRulesOut:
+def get_policy_rules(state_code: str, insurance_category: str, cpt_code: str, icd10_code: str,
+                     on: date) -> s.PolicyRulesOut:
     with session_scope() as sess:
         repo = DomainRepository(sess)
         proc = repo.procedure(cpt_code)
         if proc is None:
             raise NotFound(f"procedure {cpt_code} not found")
+        dx = repo.diagnosis(icd10_code)
+        if dx is None:
+            raise NotFound(f"diagnosis {icd10_code} not found")
         rules = [s.CoverageRuleOut.model_validate(r)
                  for r in repo.coverage_rules_effective(state_code, insurance_category, cpt_code, on)]
         crit = [s.CriterionOut(criteria_id=c.criteria_id, icd10_code=c.icd10_code, diagnosis_description=d.description,
-                               criteria_source=c.criteria_source) for c, d in repo.clinical_criteria(cpt_code)]
-        return s.PolicyRulesOut(procedure=s.ProcedureOut.model_validate(proc), coverage_rules=rules, clinical_criteria=crit)
+                               diagnosis_chapter=d.chapter, criteria_source=c.criteria_source)
+                for c, d in repo.clinical_criteria(cpt_code)]
+        return s.PolicyRulesOut(procedure=s.ProcedureOut.model_validate(proc),
+                                requested_diagnosis=s.DiagnosisOut.model_validate(dx),
+                                coverage_rules=rules, clinical_criteria=crit)
 
 
 def get_reviewer(reviewer_id: str) -> s.ReviewerOut:
@@ -142,14 +149,17 @@ def record_determination(request_number: str, body: s.DeterminationIn, idempoten
             raise NotFound(f"auth request {request_number} not found")
         try:
             action_guard.authorize(sess, body.workflow_run_id, body.approval_id, "RECORD_DETERMINATION",
-                                   req.member_id, request_number, determination_status=body.status)
+                                   req.member_id, request_number,
+                                   determination=(body.status, body.denial_code, body.units_approved))
         except action_guard.ActionForbidden as e:
             raise Forbidden(str(e))
         if req.status != "PENDING":
             raise Conflict(f"auth request {request_number} already {req.status}")
         prev, now = req.status, utcnow()
-        repo.set_determination(req, body.status, f"[workflow {body.workflow_run_id}] {body.note}", now)
-        out = s.DeterminationOut(request_number=request_number, previous_status=prev, status=body.status, decision_at=now)
+        repo.set_determination(req, body.status, body.denial_code, body.units_approved,
+                               f"[workflow {body.workflow_run_id}] {body.note}", now)
+        out = s.DeterminationOut(request_number=request_number, previous_status=prev, status=body.status,
+                                 denial_code=body.denial_code, units_approved=body.units_approved, decision_at=now)
         _remember(sess, idempotency_key, "record_determination", h, out.model_dump(mode="json"))
         return out
 

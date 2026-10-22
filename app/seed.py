@@ -27,10 +27,10 @@ SCENARIOS = {
     "SYN-M0003": ("SYN-PA-0003", "Conflicting policy rules: two overlapping coverage rules for the same service"),
     "SYN-M0004": ("SYN-PA-0004", "Requesting provider's license expired before the service date"),
     "SYN-M0005": ("SYN-PA-0005", "Out-of-network provider on an HMO plan"),
-    "SYN-M0006": ("SYN-PA-0006", "Coverage terminated before the service date"),
+    "SYN-M0006": ("SYN-PA-0006", "Coverage terminates before the service date"),
     "SYN-M0007": ("SYN-PA-0007", "Missing data: license expiry unknown, clinical notes incomplete, diagnosis outside criteria"),
     "SYN-M0008": ("SYN-PA-0008", "Conflicting customer data: two overlapping active enrollments"),
-    "SYN-M0009": (None, "Coverage inquiry (no submitted request) for physical therapy units above the annual limit"),
+    "SYN-M0009": (None, "Coverage inquiry: physical therapy units above the annual limit (partial approval, COV-04)"),
     "SYN-M0010": ("SYN-PA-0010", "Member below the minimum age in the coverage rule"),
 }
 
@@ -62,7 +62,7 @@ def _rows():
         m.Plan(plan_id=4, plan_code="SYN-NY-MCD-01", plan_name="Empire Community Care (synthetic)", payer_name="Synthetic Community Plan",
                product_id=4, state_code="NY", effective_date=D("2019-01-01"), termination_date=None, is_active=True),
         m.Plan(plan_id=5, plan_code="SYN-FL-PPO-01", plan_name="Sunshine Choice PPO (synthetic)", payer_name="Synthetic Mutual",
-               product_id=1, state_code="FL", effective_date=D("2020-01-01"), termination_date=D("2026-03-31"), is_active=False),
+               product_id=1, state_code="FL", effective_date=D("2020-01-01"), termination_date=D("2026-10-31"), is_active=False),
     ]
     providers = [
         m.Provider(provider_id=1, npi="9000000011", display_name="Dr. Lena Marsh (synthetic)", credential="MD",
@@ -123,14 +123,34 @@ def _rows():
                     requires_prior_auth=False, default_required_doc=None),
     ]
     diagnoses = [
-        m.Diagnosis(icd10_code="M51.26", description="Other intervertebral disc displacement, lumbar region"),
-        m.Diagnosis(icd10_code="M54.50", description="Low back pain, unspecified"),
-        m.Diagnosis(icd10_code="M17.11", description="Unilateral primary osteoarthritis, right knee"),
-        m.Diagnosis(icd10_code="G43.909", description="Migraine, unspecified, not intractable"),
-        m.Diagnosis(icd10_code="G47.33", description="Obstructive sleep apnea"),
-        m.Diagnosis(icd10_code="E66.01", description="Morbid (severe) obesity due to excess calories"),
-        m.Diagnosis(icd10_code="M62.81", description="Muscle weakness (generalized)"),
+        m.Diagnosis(icd10_code="M51.26", description="Other intervertebral disc displacement, lumbar region", chapter="Musculoskeletal"),
+        m.Diagnosis(icd10_code="M54.50", description="Low back pain, unspecified", chapter="Musculoskeletal"),
+        m.Diagnosis(icd10_code="M17.11", description="Unilateral primary osteoarthritis, right knee", chapter="Musculoskeletal"),
+        m.Diagnosis(icd10_code="G43.909", description="Migraine, unspecified, not intractable", chapter="Nervous system"),
+        m.Diagnosis(icd10_code="G47.33", description="Obstructive sleep apnea", chapter="Nervous system"),
+        m.Diagnosis(icd10_code="E66.01", description="Morbid (severe) obesity due to excess calories", chapter="Endocrine"),
+        m.Diagnosis(icd10_code="M62.81", description="Muscle weakness (generalized)", chapter="Musculoskeletal"),
     ]
+    # Same code scheme as the reference (internal code, CARC code); only the codes this workflow can emit.
+    denial_reasons = [m.DenialReason(denial_code=c, carc_code=carc, category=cat, description=desc, appealable=ap)
+                      for c, carc, cat, desc, ap in [
+        ("ADM-01", "29", "ADMINISTRATIVE", "Time limit for filing has expired", True),
+        ("COV-01", "96", "COVERAGE", "Non-covered charge", True),
+        ("COV-03", "6", "COVERAGE", "Procedure inconsistent with patient age", True),
+        ("COV-04", "119", "COVERAGE", "Benefit maximum for this period has been reached", True),
+        ("DOC-02", "252", "DOCUMENTATION", "Required attachment/documentation not received", True),
+        ("DOC-03", "226", "DOCUMENTATION", "Requested information not provided or insufficient", True),
+        ("ELG-01", "27", "ELIGIBILITY", "Expenses incurred after coverage terminated", True),
+        ("ELG-02", "26", "ELIGIBILITY", "Expenses incurred prior to coverage", True),
+        ("ELG-04", "22", "ELIGIBILITY", "Care may be covered by another payer (COB)", True),
+        ("LIC-01", "B7", "LICENSURE", "Provider not licensed/eligible in service state on date of service", True),
+        ("LIC-02", "52", "LICENSURE", "Rendering/ordering provider license suspended or revoked", False),
+        ("LIC-04", "B7", "LICENSURE", "Provider excluded from federal health programs (OIG)", False),
+        ("MN-01", "50", "MEDICAL_NECESSITY", "Not deemed a medical necessity by the payer", True),
+        ("MN-02", "11", "MEDICAL_NECESSITY", "Diagnosis inconsistent with the procedure", True),
+        ("NET-01", "242", "NETWORK", "Services not provided by network/primary care providers", True),
+        ("REF-01", "288", "REFERRAL", "Referral absent", True),
+    ]]
     rules = [
         m.CoverageRule(coverage_rule_id=1, state_code="CA", insurance_category="COMMERCIAL", cpt_code="72148", is_covered=True,
                        requires_prior_auth=True, required_document_type="CLINICAL_NOTES", max_units_per_year=2,
@@ -141,8 +161,9 @@ def _rows():
         m.CoverageRule(coverage_rule_id=3, state_code="CA", insurance_category="COMMERCIAL", cpt_code="43644", is_covered=True,
                        requires_prior_auth=True, required_document_type="LETTER_OF_MEDICAL_NECESSITY", min_age=18,
                        effective_date=D("2020-01-01"), citation="SYN-CA bariatric mandate (synthetic)"),
+        # Like the reference's CA rule for 97110: prior auth required, PT progress notes, annual unit cap.
         m.CoverageRule(coverage_rule_id=4, state_code="CA", insurance_category="COMMERCIAL", cpt_code="97110", is_covered=True,
-                       requires_prior_auth=False, max_units_per_year=20,
+                       requires_prior_auth=True, required_document_type="PT_PROGRESS_NOTES", max_units_per_year=20,
                        effective_date=D("2020-01-01"), citation="SYN-CA rehabilitation visit limit"),
         m.CoverageRule(coverage_rule_id=5, state_code="TX", insurance_category="MEDICARE", cpt_code="70551", is_covered=True,
                        requires_prior_auth=True, required_document_type="CLINICAL_NOTES",
@@ -187,7 +208,7 @@ def _rows():
         m.Enrollment(enrollment_id=3, member_id="SYN-M0003", plan_id=3, relationship="SUBSCRIBER", coverage_start=D("2021-01-01"), status="ACTIVE", pcp_provider_id=None),
         m.Enrollment(enrollment_id=4, member_id="SYN-M0004", plan_id=3, relationship="SUBSCRIBER", coverage_start=D("2021-06-01"), status="ACTIVE", pcp_provider_id=None),
         m.Enrollment(enrollment_id=5, member_id="SYN-M0005", plan_id=4, relationship="SUBSCRIBER", coverage_start=D("2023-01-01"), status="ACTIVE", pcp_provider_id=None),
-        m.Enrollment(enrollment_id=6, member_id="SYN-M0006", plan_id=5, relationship="SUBSCRIBER", coverage_start=D("2020-01-01"), coverage_end=D("2026-03-31"), status="TERMINATED", pcp_provider_id=1),
+        m.Enrollment(enrollment_id=6, member_id="SYN-M0006", plan_id=5, relationship="SUBSCRIBER", coverage_start=D("2020-01-01"), coverage_end=D("2026-10-31"), status="TERMINATED", pcp_provider_id=1),
         m.Enrollment(enrollment_id=7, member_id="SYN-M0007", plan_id=1, relationship="SPOUSE", coverage_start=D("2022-01-01"), status="ACTIVE", pcp_provider_id=4),
         m.Enrollment(enrollment_id=8, member_id="SYN-M0008", plan_id=1, relationship="SUBSCRIBER", coverage_start=D("2021-01-01"), status="ACTIVE", pcp_provider_id=1),
         m.Enrollment(enrollment_id=9, member_id="SYN-M0008", plan_id=2, relationship="DEPENDENT", coverage_start=D("2025-01-01"), status="ACTIVE", pcp_provider_id=1),
@@ -207,7 +228,7 @@ def _rows():
         req("SYN-PA-0003", "SYN-M0003", 3, 6, "TX", "27447", "M17.11"),
         req("SYN-PA-0004", "SYN-M0004", 4, 3, "TX", "70551", "G43.909"),
         req("SYN-PA-0005", "SYN-M0005", 5, 5, "NY", "95810", "G47.33"),
-        req("SYN-PA-0006", "SYN-M0006", 6, 1, "FL", "72148", "M51.26", svc="2026-05-10"),
+        req("SYN-PA-0006", "SYN-M0006", 6, 1, "FL", "72148", "M51.26"),
         req("SYN-PA-0007", "SYN-M0007", 7, 4, "CA", "72148", "M54.50"),
         req("SYN-PA-0008", "SYN-M0008", 8, 7, "CA", "43644", "E66.01"),
         req("SYN-PA-0010", "SYN-M0010", 11, 7, "CA", "43644", "E66.01"),
@@ -245,7 +266,7 @@ def _rows():
         reviewer("SYN-R03", "Alex Former, RN (synthetic, inactive)", "NURSE_REVIEWER", active=False),
     ]
     # Insert in FK-dependency order.
-    return [states, products, plans, providers, licenses, network, procedures, diagnoses, rules, criteria,
+    return [states, products, plans, providers, licenses, network, procedures, diagnoses, denial_reasons, rules, criteria,
             members, enrollments, requests, documents, reviewers]
 
 

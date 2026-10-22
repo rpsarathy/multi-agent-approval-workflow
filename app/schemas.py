@@ -136,12 +136,20 @@ class CriterionOut(Strict):
     criteria_id: int
     icd10_code: str
     diagnosis_description: str
+    diagnosis_chapter: str
     criteria_source: str
+
+
+class DiagnosisOut(Strict):
+    icd10_code: str
+    description: str
+    chapter: str
 
 
 class PolicyRulesOut(Strict):
     """Insurance-policy rules applicable to one service on one date."""
     procedure: ProcedureOut
+    requested_diagnosis: DiagnosisOut
     coverage_rules: list[CoverageRuleOut]      # all rules effective on the date (more than one = conflict)
     clinical_criteria: list[CriterionOut]
 
@@ -156,6 +164,8 @@ class ActionAuthorization(Strict):
 
 class DeterminationIn(ActionAuthorization):
     status: Literal["APPROVED", "DENIED"]
+    denial_code: str | None = Field(default=None, pattern=r"^[A-Z]{2,3}-\d{2}$")   # denial, or partial approval
+    units_approved: int = Field(ge=0)
     note: str = Field(max_length=2000)
 
 
@@ -163,6 +173,8 @@ class DeterminationOut(Strict):
     request_number: str
     previous_status: str
     status: str
+    denial_code: str | None
+    units_approved: int
     decision_at: datetime
 
 

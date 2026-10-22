@@ -65,8 +65,9 @@ def provider(provider_id: int, state_code: str = Query(pattern=r"^[A-Z]{2}$"), p
 @router.get("/policy-rules", response_model=s.PolicyRulesOut, dependencies=[require("get_policy_rules")])
 def policy_rules(state_code: str = Query(pattern=r"^[A-Z]{2}$"),
                  insurance_category: str = Query(pattern=r"^(COMMERCIAL|MEDICARE|MEDICAID)$"),
-                 cpt_code: str = Query(pattern=r"^[A-Z0-9]{4,8}$"), on: date = Query(...)):
-    return _wrap(domain.get_policy_rules, state_code, insurance_category, cpt_code, on)
+                 cpt_code: str = Query(pattern=r"^[A-Z0-9]{4,8}$"),
+                 icd10_code: str = Query(pattern=r"^[A-Z][0-9A-Z.]{2,9}$"), on: date = Query(...)):
+    return _wrap(domain.get_policy_rules, state_code, insurance_category, cpt_code, icd10_code, on)
 
 
 @router.post("/auth-requests/{request_number}/determination", response_model=s.DeterminationOut,

@@ -47,7 +47,7 @@ def test_internal_api_enforces_per_agent_grants(client, internal):
     assert internal.get("/internal/v1/members/SYN-M0001", headers=_h("member_retrieval_agent")).status_code == 200
     assert internal.get("/internal/v1/members/SYN-M0001", headers=_h("policy_retrieval_agent")).status_code == 403
     assert internal.get("/internal/v1/members/SYN-M0001", headers=_h("recommendation_agent")).status_code == 403
-    body = {"status": "APPROVED", "note": "x", "workflow_run_id": "r", "approval_id": 1}
+    body = {"status": "APPROVED", "units_approved": 1, "note": "x", "workflow_run_id": "r", "approval_id": 1}
     assert internal.post("/internal/v1/auth-requests/SYN-PA-0001/determination", json=body,
                          headers={**_h("policy_retrieval_agent"), "Idempotency-Key": "k-12345678"}).status_code == 403
 
@@ -56,11 +56,11 @@ def test_write_without_human_approval_is_refused_by_service_layer(client, intern
     """Even the action executor's own credential cannot write without an approved run behind it."""
     h = {**_h("action_executor"), "Idempotency-Key": "attack-0001"}
     url = "/internal/v1/auth-requests/SYN-PA-0002/determination"
-    r = internal.post(url, json={"status": "APPROVED", "note": "x", "workflow_run_id": "fake", "approval_id": 1}, headers=h)
+    r = internal.post(url, json={"status": "APPROVED", "units_approved": 1, "note": "x", "workflow_run_id": "fake", "approval_id": 1}, headers=h)
     assert r.status_code == 403
     # a real run that is still awaiting approval is not enough either
     run = start(client, "SYN-M0002", pa("SYN-PA-0002"))
-    r = internal.post(url, json={"status": "APPROVED", "note": "x", "workflow_run_id": run["run_id"], "approval_id": 1},
+    r = internal.post(url, json={"status": "APPROVED", "units_approved": 1, "note": "x", "workflow_run_id": run["run_id"], "approval_id": 1},
                       headers={**h, "Idempotency-Key": "attack-0002"})
     assert r.status_code == 403
     notice = {"workflow_run_id": run["run_id"], "approval_id": 1, "member_id": "SYN-M0002",
@@ -87,12 +87,17 @@ def test_approved_run_cannot_be_used_to_write_a_contradicting_determination(clie
     r = st.get_run(run["run_id"])
     st.save_step(run["run_id"], r["version"], "resume", "execute_actions", "RUNNING", r["state"], [])
     h = {**_h("action_executor"), "Idempotency-Key": "contradict-1"}
-    body = {"status": "APPROVED", "note": "x", "workflow_run_id": run["run_id"], "approval_id": seen["approval_id"]}
+    body = {"status": "APPROVED", "units_approved": 1, "note": "x", "workflow_run_id": run["run_id"], "approval_id": seen["approval_id"]}
     r = internal.post("/internal/v1/auth-requests/SYN-PA-0004/determination", json=body, headers=h)
     assert r.status_code == 403 and "contradicts" in r.text
     r = internal.post("/internal/v1/auth-requests/SYN-PA-0001/determination", json={**body, "status": "DENIED"},
                       headers={**h, "Idempotency-Key": "contradict-2"})
     assert r.status_code == 403 and "does not match" in r.text
+    # right status, wrong reason code (the approved determination is LIC-01, 0 units)
+    r = internal.post("/internal/v1/auth-requests/SYN-PA-0004/determination",
+                      json={**body, "status": "DENIED", "denial_code": "REF-01", "units_approved": 0},
+                      headers={**h, "Idempotency-Key": "contradict-3"})
+    assert r.status_code == 403 and "differ from the approved determination" in r.text
 
 
 def test_tool_inputs_are_schema_validated(client, internal):

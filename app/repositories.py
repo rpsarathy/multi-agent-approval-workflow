@@ -56,6 +56,9 @@ class DomainRepository:
                 .order_by(m.CoverageRule.effective_date, m.CoverageRule.coverage_rule_id))
         return list(self.s.scalars(stmt))
 
+    def diagnosis(self, icd10: str) -> m.Diagnosis | None:
+        return self.s.get(m.Diagnosis, icd10)
+
     def clinical_criteria(self, cpt: str):
         stmt = (select(m.ClinicalCriterion, m.Diagnosis)
                 .join(m.Diagnosis, and_(m.ClinicalCriterion.icd10_code == m.Diagnosis.icd10_code))
@@ -68,8 +71,10 @@ class DomainRepository:
         return self.s.get(m.Reviewer, reviewer_id)
 
     # writes -----------------------------------------------------------------
-    def set_determination(self, req: m.AuthRequest, status: str, note: str, at: datetime) -> None:
-        req.status, req.decision_note, req.decision_at = status, note, at
+    def set_determination(self, req: m.AuthRequest, status: str, denial_code: str | None, units_approved: int,
+                          note: str, at: datetime) -> None:
+        req.status, req.denial_code, req.units_approved = status, denial_code, units_approved
+        req.decision_note, req.decision_at = note, at
 
     def add_notice(self, notice: m.Notice) -> m.Notice:
         self.s.add(notice)

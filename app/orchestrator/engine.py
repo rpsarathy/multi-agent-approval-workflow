@@ -150,6 +150,9 @@ def node_recommend(run, ctx):
     out = recommendation.run(ctx.llm(), budget, bundle,
                              prompt_filter=lambda text: privacy_service.redact_for_member(member, text))
     _redact_model_output(member, out)
+    # What a recorded determination would contain (status, reason code, units) comes from the checks, not the LLM.
+    out["payload"]["determination"] = validation.determination_for(out["payload"]["outcome"], st["validation"],
+                                                                   st["policy"]["service"]["units"])
     # Safe under the run lock; the recommendation row is written by save_step in the step's transaction.
     version = len(store.recommendations(run["run_id"])) + 1
     events = [("TOKEN_BUDGET_CHECKED", ORCHESTRATOR, out["budget"])]

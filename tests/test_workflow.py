@@ -1,6 +1,8 @@
 import pytest
 
+from app import models as m
 from app.config import get_settings
+from app.db import session_scope
 
 from app.orchestrator import engine
 from app.services import workflow_store as store
@@ -150,12 +152,102 @@ def test_auth_required_and_identity_only_from_token(client):
     assert client.get("/api/v1/workflows", headers={"Authorization": ""}).status_code == 401
 
 
-def test_coverage_inquiry_never_records_determination(client):
-    run = start(client, "SYN-M0009", {"request_type": "COVERAGE_INQUIRY", "cpt_code": "97110", "icd10_code": "M62.81",
-                                       "units": 30, "service_date": "2026-11-20"})
-    assert run["recommendations"][-1]["payload"]["outcome"] == "DENY"
+INQUIRY = {"request_type": "COVERAGE_INQUIRY", "cpt_code": "97110", "icd10_code": "M62.81", "units": 30,
+           "service_date": "2026-11-20"}
+
+
+def test_coverage_inquiry_over_unit_limit_is_a_partial_approval_and_records_nothing(client):
+    run = start(client, "SYN-M0009", INQUIRY)
+    p = run["recommendations"][-1]["payload"]
+    assert p["outcome"] == "APPROVE"
+    assert p["determination"] == {"status": "APPROVED", "denial_code": "COV-04", "units_approved": 20}
+    units = next(c for c in run["state"]["validation"]["checks"] if c["check"] == "UNITS")
+    assert units["status"] == "PARTIAL" and units["approved_units"] == 20
+    run = decide(client, run, "APPROVE", "SYN-R01").json()
+    assert [a["action_type"] for a in run["actions"]] == ["NOTIFY_PROVIDER"]     # no request to record against
+    with session_scope() as s:
+        notice = s.query(m.Notice).filter_by(member_id="SYN-M0009").one().body
+    assert "20 unit(s) approved" in notice and "COV-04" in notice
+
+
+def test_service_without_prior_auth_skips_clinical_review_like_the_reference(client):
+    with session_scope() as s:
+        s.get(m.CoverageRule, 4).requires_prior_auth = False
+    run = start(client, "SYN-M0009", INQUIRY)
+    checks = {c["check"]: c["status"] for c in run["state"]["validation"]["checks"]}
+    assert checks["DOCUMENTATION"] == checks["MEDICAL_NECESSITY"] == checks["UNITS"] == "NOT_APPLICABLE"
+    p = run["recommendations"][-1]["payload"]
+    assert p["outcome"] == "APPROVE" and p["determination"]["units_approved"] == 30
+
+
+@pytest.mark.parametrize("member,request_number,code", [
+    ("SYN-M0002", "SYN-PA-0002", "REF-01"), ("SYN-M0004", "SYN-PA-0004", "LIC-01"),
+    ("SYN-M0005", "SYN-PA-0005", "NET-01"), ("SYN-M0006", "SYN-PA-0006", "ELG-01"),
+    ("SYN-M0010", "SYN-PA-0010", "COV-03"),
+])
+def test_denials_record_the_reference_denial_reason_code(client, member, request_number, code):
+    run = start(client, member, pa(request_number))
+    assert run["recommendations"][-1]["payload"]["determination"] == {"status": "DENIED", "denial_code": code,
+                                                                      "units_approved": 0}
     run = decide(client, run, "APPROVE", "SYN-R02").json()
-    assert [a["action_type"] for a in run["actions"]] == ["NOTIFY_PROVIDER"]
+    assert run["status"] == "COMPLETED"
+    with session_scope() as s:
+        req = s.get(m.AuthRequest, request_number)
+        assert (req.status, req.denial_code, req.units_approved) == ("DENIED", code, 0)
+        assert s.get(m.DenialReason, code) is not None
+        assert code in s.query(m.Notice).filter_by(request_number=request_number).one().body
+
+
+def test_approval_records_units_and_no_reason_code(client):
+    run = decide(client, start(client, "SYN-M0001", pa("SYN-PA-0001")), "APPROVE", "SYN-R01").json()
+    assert run["status"] == "COMPLETED"
+    with session_scope() as s:
+        req = s.get(m.AuthRequest, "SYN-PA-0001")
+        assert (req.status, req.denial_code, req.units_approved) == ("APPROVED", None, 1)
+
+
+def test_medical_necessity_denial_uses_mn_code_by_icd_chapter(client):
+    # Make SYN-PA-0007 complete so its only problem is the diagnosis (M54.50; criteria list M51.26, same chapter).
+    from datetime import date as _date
+    with session_scope() as s:
+        s.get(m.ProviderLicense, 4).expiry_date = _date(2028, 1, 31)
+        s.query(m.ClinicalDocument).filter_by(request_number="SYN-PA-0007").one().is_complete = True
+    p = start(client, "SYN-M0007", pa("SYN-PA-0007"))["recommendations"][-1]["payload"]
+    assert p["outcome"] == "DENY" and p["determination"]["denial_code"] == "MN-01"
+    with session_scope() as s:
+        s.get(m.AuthRequest, "SYN-PA-0007").primary_icd10 = "G47.33"      # different chapter -> MN-02
+    p = start(client, "SYN-M0007", pa("SYN-PA-0007"))["recommendations"][-1]["payload"]
+    assert p["determination"]["denial_code"] == "MN-02"
+
+
+@pytest.mark.parametrize("submitted,status,outcome", [
+    ("2026-12-31 09:00:00", "PASS", "APPROVE"),        # retro, 45 days after service: within limit
+    ("2027-03-01 09:00:00", "FAIL", "DENY"),           # retro, 105 days after service: ADM-01
+])
+def test_retro_requests_are_checked_for_timely_filing(client, submitted, status, outcome):
+    from datetime import datetime as _dt
+    with session_scope() as s:
+        s.get(m.AuthRequest, "SYN-PA-0001").submitted_at = _dt.fromisoformat(submitted)
+    run = start(client, "SYN-M0001", pa("SYN-PA-0001"))
+    check = next(c for c in run["state"]["validation"]["checks"] if c["check"] == "TIMELY_FILING")
+    assert check["status"] == status
+    p = run["recommendations"][-1]["payload"]
+    assert p["outcome"] == outcome
+    if outcome == "DENY":
+        assert p["determination"]["denial_code"] == "ADM-01"
+
+
+def test_every_seeded_request_is_filed_on_time(client):
+    for req in ("SYN-PA-0001", "SYN-PA-0002", "SYN-PA-0003", "SYN-PA-0004", "SYN-PA-0005", "SYN-PA-0006",
+                "SYN-PA-0007", "SYN-PA-0008", "SYN-PA-0010"):
+        run = start(client, "SYN-M00" + req[-2:], pa(req))
+        check = next(c for c in run["state"]["validation"]["checks"] if c["check"] == "TIMELY_FILING")
+        assert check["status"] == "PASS" and "Prospective" in check["detail"], req
+
+
+def test_unknown_diagnosis_is_invalid_request(client):
+    run = start(client, "SYN-M0009", {**INQUIRY, "icd10_code": "Z99.99"})
+    assert run["status"] == "INVALID_REQUEST" and "Z99.99" in run["error"]
 
 
 def test_intake_rejects_bad_requests(client):

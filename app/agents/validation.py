@@ -4,14 +4,21 @@ Works only on the retrieved state (no tools, no LLM). Every check and issue cite
 evidence IDs from the evidence catalog it builds, so the recommendation can be
 traced back to specific records.
 
-Check statuses: PASS | FAIL | UNKNOWN (data missing) | NOT_APPLICABLE.
-`hard` checks are failures that more information cannot cure (eligibility,
-licensure, network, ...). Soft checks (criteria, units, documentation) may change
-once missing information arrives.
+Order follows the reference engine (`evaluate()` in healthcare_db/build_db.py):
+eligibility, retro timely filing, OIG exclusion, licence, network, referral, then
+coverage, age, the no-prior-auth short-circuit, documentation, medical necessity, units.
+(Licence scope and pharmacy formulary are not modelled.)
+
+Check statuses: PASS | FAIL | UNKNOWN (data missing) | PARTIAL (units reduced to the
+annual limit) | NOT_APPLICABLE. Failures carry the reference's denial reason code
+(ELG-01, LIC-01, NET-01, MN-02, ...). `hard` checks are failures that more information
+cannot cure; soft checks (documentation, medical necessity, units) may change once
+missing information arrives.
 """
-from datetime import date
+from datetime import date, datetime
 
 NETWORK_RESTRICTED = ("HMO", "EPO")
+RETRO_FILING_LIMIT_DAYS = 90        # reference: RETRO_AUTH filed > 90 days after service -> ADM-01
 
 
 def _d(x: str | None) -> date | None:
@@ -27,8 +34,9 @@ def run(intake: dict, profile: dict, policy: dict) -> dict:
         evidence[eid] = text
         return eid
 
-    def check(name, status, detail, ids, hard):
-        checks.append({"check": name, "status": status, "detail": detail, "evidence_ids": ids, "hard": hard})
+    def check(name, status, detail, ids, hard, code=None, **extra):
+        checks.append({"check": name, "status": status, "detail": detail, "evidence_ids": ids, "hard": hard,
+                       "code": code if status in ("FAIL", "PARTIAL") else None, **extra})
 
     def issue(kind, code, message, ids):
         issues.append({"kind": kind, "code": code, "message": message, "evidence_ids": ids})
@@ -80,13 +88,31 @@ def run(intake: dict, profile: dict, policy: dict) -> dict:
     if enr["status"] == "PENDING_VERIFICATION":
         check("ELIGIBILITY", "UNKNOWN", "Eligibility pending verification", [enr_id], False)
     elif dos < start:
-        check("ELIGIBILITY", "FAIL", f"Service date {dos} precedes coverage start {start}", [enr_id, svc_id], True)
+        check("ELIGIBILITY", "FAIL", f"Service date {dos} precedes coverage start {start}", [enr_id, svc_id], True,
+              "ELG-02")
     elif (end and dos > end) or enr["status"] == "TERMINATED":
-        check("ELIGIBILITY", "FAIL", f"Coverage ended {end}; service date {dos}", [enr_id, svc_id], True)
+        check("ELIGIBILITY", "FAIL", f"Coverage ended {end}; service date {dos}", [enr_id, svc_id], True, "ELG-01")
     elif plan["termination_date"] and dos > _d(plan["termination_date"]):
-        check("ELIGIBILITY", "FAIL", f"Plan terminated {plan['termination_date']}", [plan_id, svc_id], True)
+        check("ELIGIBILITY", "FAIL", f"Plan terminated {plan['termination_date']}", [plan_id, svc_id], True, "ELG-01")
     else:
         check("ELIGIBILITY", "PASS", f"Enrollment active on {dos}", [enr_id, plan_id], True)
+
+    # ---- timely filing (retrospective requests) -------------------------------
+    if ar is None:
+        check("TIMELY_FILING", "NOT_APPLICABLE", "Coverage inquiry: nothing has been filed", [svc_id], True)
+    else:
+        submitted = datetime.fromisoformat(ar["submitted_at"]).date()
+        lag = (submitted - dos).days
+        sub_id = ev(f"auth_request:{ar['request_number']}:submitted",
+                    f"Request {ar['request_number']} submitted {submitted} for service on {dos}")
+        if lag <= 0:
+            check("TIMELY_FILING", "PASS", f"Prospective request: submitted {-lag} days before the service", [sub_id], True)
+        elif lag <= RETRO_FILING_LIMIT_DAYS:
+            check("TIMELY_FILING", "PASS", f"Retrospective request filed {lag} days after the service "
+                                           f"(limit {RETRO_FILING_LIMIT_DAYS})", [sub_id], True)
+        else:
+            check("TIMELY_FILING", "FAIL", f"Retrospective request filed {lag} days after the service; limit is "
+                                           f"{RETRO_FILING_LIMIT_DAYS} days", [sub_id, svc_id], True, "ADM-01")
 
     if profile["state_code"] != plan["state_code"]:
         issue("WARNING", "STATE_MISMATCH", f"Member state {profile['state_code']} differs from plan state {plan['state_code']}",
@@ -102,23 +128,26 @@ def run(intake: dict, profile: dict, policy: dict) -> dict:
                      f"{prov['display_name']} {prov['credential']} {prov['specialty']} ({prov['specialty_group']}), "
                      f"OIG excluded={prov['oig_excluded']}")
         check("PROVIDER_EXCLUSION", "FAIL" if prov["oig_excluded"] else "PASS",
-              "Provider is on the exclusion list" if prov["oig_excluded"] else "Provider not excluded", [prov_id], True)
+              "Provider is on the exclusion list" if prov["oig_excluded"] else "Provider not excluded", [prov_id], True,
+              "LIC-04")
 
         lic = prov["license_in_state"]
         if lic is None:
-            check("PROVIDER_LICENSE", "FAIL", f"No license in service state {svc['service_state']}", [prov_id], True)
+            check("PROVIDER_LICENSE", "FAIL", f"No license in service state {svc['service_state']}", [prov_id], True,
+                  "LIC-01")
         else:
             lic_id = ev(f"license:{lic['license_id']}",
                         f"License {lic['license_type']} in {lic['state_code']} status {lic['status']} expires "
                         f"{lic['expiry_date'] or 'UNKNOWN'}")
             if lic["status"] in ("SUSPENDED", "REVOKED"):
-                check("PROVIDER_LICENSE", "FAIL", f"License {lic['status']}", [lic_id], True)
+                check("PROVIDER_LICENSE", "FAIL", f"License {lic['status']}", [lic_id], True, "LIC-02")
             elif lic["expiry_date"] is None:
                 check("PROVIDER_LICENSE", "UNKNOWN", "License expiry date not on file", [lic_id], False)
                 issue("MISSING", "LICENSE_EXPIRY", "Provider license expiry date is missing; credentialing must verify", [lic_id])
             elif _d(lic["expiry_date"]) < dos or lic["status"] == "EXPIRED":
+                # judged on the expiry date against the service date, not only the cached status
                 check("PROVIDER_LICENSE", "FAIL", f"License not valid on {dos} (expires {lic['expiry_date']}, "
-                                                  f"status {lic['status']})", [lic_id, svc_id], True)
+                                                  f"status {lic['status']})", [lic_id, svc_id], True, "LIC-01")
             else:
                 check("PROVIDER_LICENSE", "PASS", f"License {lic['status']} through {lic['expiry_date']}", [lic_id], True)
 
@@ -132,7 +161,7 @@ def run(intake: dict, profile: dict, policy: dict) -> dict:
             check("NETWORK", "PASS", "Provider in network on service date", net_ids, True)
         elif plan["network_model"] in NETWORK_RESTRICTED and not plan["oon_coverage"]:
             check("NETWORK", "FAIL", f"Provider out of network for {plan['network_model']} plan without OON benefit",
-                  net_ids, True)
+                  net_ids, True, "NET-01")
         else:
             check("NETWORK", "PASS", f"Out of network, but {plan['network_model']} plan has OON coverage", net_ids, True)
 
@@ -140,7 +169,7 @@ def run(intake: dict, profile: dict, policy: dict) -> dict:
             has_ref = bool(ar and (ar["referral_on_file"] or any(d["document_type"] == "REFERRAL" for d in ar["documents"])))
             check("REFERRAL", "PASS" if has_ref else "FAIL",
                   "PCP referral on file" if has_ref else "Plan requires a PCP referral for specialist services; none on file",
-                  [plan_id, prov_id] + ([f"auth_request:{ar['request_number']}"] if ar else []), True)
+                  [plan_id, prov_id] + ([f"auth_request:{ar['request_number']}"] if ar else []), True, "REF-01")
             if enr["pcp_provider_id"] is None:
                 issue("MISSING", "PCP", "Referral-based plan but no PCP assigned on the enrollment", [enr_id])
         else:
@@ -176,21 +205,30 @@ def run(intake: dict, profile: dict, policy: dict) -> dict:
         min_age = max_age = max_units = None
 
     check("COVERAGE", "PASS" if covered else "FAIL", "Service covered" if covered else "Service excluded under policy",
-          [rule_ref], True)
+          [rule_ref], True, "COV-01")
 
     if min_age is None and max_age is None:
         check("AGE", "NOT_APPLICABLE", "No age restriction", [rule_ref], True)
     elif (min_age is not None and age < min_age) or (max_age is not None and age > max_age):
-        check("AGE", "FAIL", f"Member age {age} outside covered range {min_age}-{max_age}", [rule_ref, mem_id], True)
+        check("AGE", "FAIL", f"Member age {age} outside covered range {min_age}-{max_age}", [rule_ref, mem_id], True,
+              "COV-03")
     else:
         check("AGE", "PASS", f"Member age {age} within {min_age}-{max_age}", [rule_ref, mem_id], True)
 
     if not pa:
-        check("DOCUMENTATION", "NOT_APPLICABLE", "Prior authorization not required for this service", [rule_ref], False)
-    elif not req_doc:
+        # As in the reference: a service that needs no prior authorization is approved without clinical
+        # review, so documentation, medical necessity and unit limits are not evaluated.
+        for name in ("DOCUMENTATION", "MEDICAL_NECESSITY", "UNITS"):
+            check(name, "NOT_APPLICABLE", "Prior authorization not required for this service; no clinical review",
+                  [rule_ref], False)
+        return _result(evidence, checks, issues)
+
+    if not req_doc:
         check("DOCUMENTATION", "PASS", "No specific document required", [rule_ref], False)
     elif ar is None:
-        check("DOCUMENTATION", "UNKNOWN", f"{req_doc} would be required; no submission to inspect", [rule_ref], False)
+        # A coverage inquiry has no submission to inspect: the document is a requirement for the future request.
+        check("DOCUMENTATION", "NOT_APPLICABLE", f"{req_doc} will be required with the prior-auth submission",
+              [rule_ref], False)
     else:
         docs = [d for d in ar["documents"] if d["document_type"] == req_doc]
         doc_ids = [ev(f"document:{d['document_id']}", f"{d['document_type']} received {d['received_at']} "
@@ -199,7 +237,8 @@ def run(intake: dict, profile: dict, policy: dict) -> dict:
             check("DOCUMENTATION", "PASS", f"{req_doc} received and complete", [rule_ref] + doc_ids, False)
         else:
             what = "incomplete" if docs else "not received"
-            check("DOCUMENTATION", "UNKNOWN", f"Required {req_doc} {what}", [rule_ref] + doc_ids, False)
+            check("DOCUMENTATION", "UNKNOWN", f"Required {req_doc} {what}", [rule_ref] + doc_ids, False,
+                  "DOC-03" if docs else "DOC-02")
             issue("MISSING", "REQUIRED_DOCUMENT", f"Required document {req_doc} is {what}", [rule_ref] + doc_ids)
 
     crit = pr["clinical_criteria"]
@@ -211,13 +250,18 @@ def run(intake: dict, profile: dict, policy: dict) -> dict:
         if svc["icd10_code"] in {c["icd10_code"] for c in crit}:
             check("MEDICAL_NECESSITY", "PASS", f"Diagnosis {svc['icd10_code']} meets criteria", crit_ids + [svc_id], False)
         else:
+            # Reference: MN-01 when a qualifying diagnosis is in the same ICD chapter, otherwise MN-02.
+            same_chapter = any(c["diagnosis_chapter"] == pr["requested_diagnosis"]["chapter"] for c in crit)
             check("MEDICAL_NECESSITY", "FAIL", f"Diagnosis {svc['icd10_code']} not among criteria diagnoses "
-                                               f"{sorted(c['icd10_code'] for c in crit)}", crit_ids + [svc_id], False)
+                                               f"{sorted(c['icd10_code'] for c in crit)}", crit_ids + [svc_id], False,
+                  "MN-01" if same_chapter else "MN-02")
 
     if max_units is None:
         check("UNITS", "NOT_APPLICABLE", "No unit limit", [rule_ref], False)
     elif svc["units"] > max_units:
-        check("UNITS", "FAIL", f"{svc['units']} units requested exceeds annual limit {max_units}", [rule_ref, svc_id], False)
+        # Reference: approve a reduced quantity at the limit (partial approval, COV-04), not a denial.
+        check("UNITS", "PARTIAL", f"{svc['units']} units requested; approvable up to the annual limit of {max_units}",
+              [rule_ref, svc_id], False, "COV-04", approved_units=max_units)
     else:
         check("UNITS", "PASS", f"{svc['units']} units within annual limit {max_units}", [rule_ref, svc_id], False)
 
@@ -227,5 +271,21 @@ def run(intake: dict, profile: dict, policy: dict) -> dict:
 def _result(evidence, checks, issues) -> dict:
     for c in checks:
         evidence[f"check:{c['check']}"] = f"{c['check']} {c['status']}: {c['detail']}"
-    counts = {s: sum(1 for c in checks if c["status"] == s) for s in ("PASS", "FAIL", "UNKNOWN", "NOT_APPLICABLE")}
+    counts = {s: sum(1 for c in checks if c["status"] == s)
+              for s in ("PASS", "FAIL", "UNKNOWN", "PARTIAL", "NOT_APPLICABLE")}
     return {"checks": checks, "data_issues": issues, "evidence": evidence, "summary": counts}
+
+
+def determination_for(outcome: str, validation: dict, units_requested: int) -> dict | None:
+    """The record a RECORD_DETERMINATION action would write, derived from the checks (never from the LLM).
+    DENY: the reason code of the first hard failure, else of the first failure. APPROVE: all units, or the
+    reduced quantity with COV-04 when the unit limit applies. PEND / REFER: nothing is determined yet."""
+    checks = validation["checks"]
+    if outcome == "DENY":
+        failed = [c for c in checks if c["status"] == "FAIL" and c["hard"]] or [c for c in checks if c["status"] == "FAIL"]
+        return {"status": "DENIED", "denial_code": failed[0]["code"] if failed else None, "units_approved": 0}
+    if outcome == "APPROVE":
+        partial = next((c for c in checks if c["status"] == "PARTIAL"), None)
+        return {"status": "APPROVED", "denial_code": partial["code"] if partial else None,
+                "units_approved": partial["approved_units"] if partial else units_requested}
+    return None

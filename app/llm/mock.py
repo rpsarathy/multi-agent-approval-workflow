@@ -59,7 +59,10 @@ def rule_based_recommendation(bundle: dict) -> LLMRecommendation:
         basis = soft_failed
     else:
         outcome = Outcome.APPROVE
+        partial = [c for c in checks if c["status"] == "PARTIAL"]
         summary = "All eligibility, provider, network, coverage, documentation and criteria checks passed."
+        if partial:
+            summary += " " + "; ".join(f"{c['detail']} ({c['code']})" for c in partial) + "."
         basis = checks
 
     findings = [Finding(statement=b.get("detail") or b.get("message", ""),

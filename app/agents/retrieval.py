@@ -58,9 +58,9 @@ def policy_agent(tools: ToolClient, intake: dict, profile: dict) -> dict:
         out["provider"] = tools.call("get_provider", provider_id=service["provider_id"],
                                      state_code=service["service_state"], plan_id=plan["plan_id"]).model_dump(mode="json")
     # Coverage rules are keyed by the plan's state (where the policy is regulated). An unknown
-    # procedure code is a 404 that ends the run as INVALID_REQUEST; a known procedure with no
-    # state rule returns an empty rule list, which the validation agent reports.
+    # procedure or diagnosis code is a 404 that ends the run as INVALID_REQUEST; a known procedure
+    # with no state rule returns an empty rule list, which the validation agent reports.
     out["policy_rules"] = tools.call("get_policy_rules", state_code=plan["state_code"],
                                      insurance_category=plan["insurance_category"], cpt_code=service["cpt_code"],
-                                     on=dos).model_dump(mode="json")
+                                     icd10_code=service["icd10_code"], on=dos).model_dump(mode="json")
     return out

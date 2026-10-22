@@ -6,5 +6,5 @@
 {"id": "SYN-M0006", "member_id": "SYN-M0006", "request": {"request_type": "PRIOR_AUTH_REVIEW", "auth_request_number": "SYN-PA-0006"}, "expected_outcome": "DENY", "must_cite": ["check:ELIGIBILITY"]}
 {"id": "SYN-M0007", "member_id": "SYN-M0007", "request": {"request_type": "PRIOR_AUTH_REVIEW", "auth_request_number": "SYN-PA-0007"}, "expected_outcome": "PEND_FOR_INFORMATION", "must_cite": ["check:DOCUMENTATION"]}
 {"id": "SYN-M0008", "member_id": "SYN-M0008", "request": {"request_type": "PRIOR_AUTH_REVIEW", "auth_request_number": "SYN-PA-0008"}, "expected_outcome": "REFER_TO_MEDICAL_DIRECTOR", "must_cite": ["enrollment:8", "enrollment:9"]}
-{"id": "SYN-M0009", "member_id": "SYN-M0009", "request": {"request_type": "COVERAGE_INQUIRY", "cpt_code": "97110", "icd10_code": "M62.81", "units": 30, "service_date": "2026-11-20"}, "expected_outcome": "DENY", "must_cite": ["check:UNITS"]}
+{"id": "SYN-M0009", "member_id": "SYN-M0009", "request": {"request_type": "COVERAGE_INQUIRY", "cpt_code": "97110", "icd10_code": "M62.81", "units": 30, "service_date": "2026-11-20"}, "expected_outcome": "APPROVE", "must_cite": ["check:UNITS"]}
 {"id": "SYN-M0010", "member_id": "SYN-M0010", "request": {"request_type": "PRIOR_AUTH_REVIEW", "auth_request_number": "SYN-PA-0010"}, "expected_outcome": "DENY", "must_cite": ["check:AGE"]}

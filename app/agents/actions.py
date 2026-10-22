@@ -20,6 +20,14 @@ class ActionNotPermitted(Exception):
     pass
 
 
+def _decision_text(rec: dict) -> str:
+    d = rec.get("determination") or {}
+    if not d:
+        return rec["outcome"]
+    text = f"{d['status']}, {d['units_approved']} unit(s) approved"
+    return text + (f", reason code {d['denial_code']}" if d["denial_code"] else "")
+
+
 def _notice_body(kind: str, rec: dict, request_number: str | None) -> str:
     ref = request_number or "coverage inquiry"
     if kind == "DOCUMENT_REQUEST":
@@ -27,7 +35,7 @@ def _notice_body(kind: str, rec: dict, request_number: str | None) -> str:
         return f"[SYNTHETIC] Additional information requested for {ref}: {items}"[:4000]
     if kind == "MEDICAL_DIRECTOR_ESCALATION":
         return f"[SYNTHETIC] Escalated for physician review ({ref}): {rec['summary']}"[:4000]
-    return f"[SYNTHETIC] Determination for {ref}: {rec['outcome']}. {rec['summary']}"[:4000]
+    return f"[SYNTHETIC] Determination for {ref}: {_decision_text(rec)}. {rec['summary']}"[:4000]
 
 
 def execute(tools: ToolClient, *, run_id: str, member_id: str, request_type: str, request_number: str | None,
@@ -47,9 +55,10 @@ def execute(tools: ToolClient, *, run_id: str, member_id: str, request_type: str
         key = f"{run_id}:{approval['approval_id']}:{action}"
         try:
             if action == "RECORD_DETERMINATION":
-                status = {"APPROVE": "APPROVED", "DENY": "DENIED"}[rec["outcome"]]
+                d = rec["determination"]          # rules-derived status, reason code and units
                 out = tools.call("record_determination", idempotency_key=key, request_number=request_number,
-                                 body={**auth, "status": status, "note": rec["summary"][:2000]})
+                                 body={**auth, "status": d["status"], "denial_code": d["denial_code"],
+                                       "units_approved": d["units_approved"], "note": rec["summary"][:2000]})
             else:
                 kind = NOTICE_TYPE[action]
                 out = tools.call("create_notice", idempotency_key=key,

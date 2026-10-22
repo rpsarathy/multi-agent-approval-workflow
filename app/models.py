@@ -134,6 +134,17 @@ class Diagnosis(SyntheticMixin, Base):
     __tablename__ = "diagnoses"
     icd10_code: Mapped[str] = mapped_column(String(10), primary_key=True)
     description: Mapped[str] = mapped_column(String(256))
+    chapter: Mapped[str] = mapped_column(String(48))           # distinguishes MN-01 from MN-02, as in the reference
+
+
+class DenialReason(SyntheticMixin, Base):
+    """Denial reason codes, same scheme as the reference (internal code -> CARC code)."""
+    __tablename__ = "denial_reason_codes"
+    denial_code: Mapped[str] = mapped_column(String(8), primary_key=True)
+    carc_code: Mapped[str] = mapped_column(String(8))
+    category: Mapped[str] = mapped_column(String(24))
+    description: Mapped[str] = mapped_column(String(160))
+    appealable: Mapped[bool] = mapped_column(Boolean)
 
 
 class CoverageRule(SyntheticMixin, Base):
@@ -182,6 +193,9 @@ class AuthRequest(SyntheticMixin, Base):
     status: Mapped[str] = mapped_column(String(16))            # PENDING | APPROVED | DENIED
     decision_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     decision_note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Set by RECORD_DETERMINATION: the reason code for a denial or a partial approval, and units approved.
+    denial_code: Mapped[str | None] = mapped_column(ForeignKey("denial_reason_codes.denial_code"), nullable=True)
+    units_approved: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
 
 class ClinicalDocument(SyntheticMixin, Base):

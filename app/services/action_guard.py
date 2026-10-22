@@ -22,7 +22,8 @@ class ActionForbidden(Exception):
 
 
 def authorize(sess: Session, run_id: str, approval_id: int, action: str, member_id: str,
-              request_number: str | None, determination_status: str | None = None) -> None:
+              request_number: str | None, determination: tuple[str, str | None, int] | None = None) -> None:
+    """`determination` = (status, denial_code, units_approved) for RECORD_DETERMINATION writes."""
     run = sess.get(m.WorkflowRun, run_id)
     if run is None:
         raise ActionForbidden("unknown workflow run")
@@ -43,5 +44,11 @@ def authorize(sess: Session, run_id: str, approval_id: int, action: str, member_
         raise ActionForbidden(f"{action} is not permitted/proposed for {request_type}/{rec['outcome']}")
     if member_id != run.member_id or request_number != run.state["intake"]["auth_request_number"]:
         raise ActionForbidden("member/request does not match the approved run")
-    if determination_status is not None and DETERMINATION_FOR.get(rec["outcome"]) != determination_status:
-        raise ActionForbidden(f"determination {determination_status} contradicts approved outcome {rec['outcome']}")
+    if determination is not None:
+        status = determination[0]
+        if DETERMINATION_FOR.get(rec["outcome"]) != status:
+            raise ActionForbidden(f"determination {status} contradicts approved outcome {rec['outcome']}")
+        approved = rec.get("determination") or {}
+        if (approved.get("denial_code"), approved.get("units_approved")) != tuple(determination[1:]):
+            raise ActionForbidden(f"denial code / units {determination[1:]} differ from the approved determination "
+                                  f"{(approved.get('denial_code'), approved.get('units_approved'))}")

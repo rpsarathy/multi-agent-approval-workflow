@@ -43,6 +43,7 @@ class GetPolicyRulesIn(_In):
     state_code: str = Field(pattern=r"^[A-Z]{2}$")
     insurance_category: str = Field(pattern=r"^(COMMERCIAL|MEDICARE|MEDICAID)$")
     cpt_code: str = Field(pattern=r"^[A-Z0-9]{4,8}$")
+    icd10_code: str = Field(pattern=r"^[A-Z][0-9A-Z.]{2,9}$")
     on: date
 
 
@@ -75,7 +76,8 @@ TOOLS: dict[str, ToolSpec] = {t.name: t for t in [
              lambda a: (f"/providers/{a.provider_id}", {"state_code": a.state_code, "plan_id": a.plan_id}, None)),
     ToolSpec("get_policy_rules", "GET", GetPolicyRulesIn, s.PolicyRulesOut,
              lambda a: ("/policy-rules", {"state_code": a.state_code, "insurance_category": a.insurance_category,
-                                          "cpt_code": a.cpt_code, "on": a.on.isoformat()}, None)),
+                                          "cpt_code": a.cpt_code, "icd10_code": a.icd10_code,
+                                          "on": a.on.isoformat()}, None)),
     ToolSpec("record_determination", "POST", RecordDeterminationIn, s.DeterminationOut,
              lambda a: (f"/auth-requests/{a.request_number}/determination", None, a.body.model_dump(mode="json"))),
     ToolSpec("create_notice", "POST", CreateNoticeIn, s.NoticeOut,
